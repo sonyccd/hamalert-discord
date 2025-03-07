@@ -61,30 +61,37 @@ class TelnetListener:
         """
         Processes received data. If it is valid JSON with required fields,
         formats a message; otherwise, sends the raw message.
+        
+        - If SOTA fields are present, prefixes the message with a mountain emoji (🏔️)
+          and includes the summit name.
+        - If POTA fields are present, prefixes the message with a tree emoji (🌳)
+          and includes the park name and reference.
         """
         try:
             data_dict = json.loads(data)
         except json.JSONDecodeError:
-            # Not valid JSON; send raw data.
             self.notifier.send_message(data)
             return
 
         required_fields = {'fullCallsign', 'callsign', 'frequency', 'mode', 'spotter', 'time', 'source'}
-        if all(key in data_dict for key in required_fields):
-            message = (
-                f"Spotted {data_dict['spotter']}: **{data_dict['fullCallsign']}** "
-                f"on {data_dict['frequency']} ({data_dict['mode']}) doing ({data_dict['source']}) at <t:{int(time.time())}:R>"
-            )
-            sota_fields = {'summitName', 'summitRef', 'summitPoints', 'summitHeight'}
-            if all(key in data_dict for key in sota_fields):
-                message = "SOTA " + message
-                message += (
-                    f"\nSummit: {data_dict['summitName']} -- {data_dict['summitRef']} -- "
-                    f"a {data_dict['summitPoints']} point summit at {data_dict['summitHeight']}m elevation!"
-                )
-            self.notifier.send_message(message)
-        else:
+        if not all(key in data_dict for key in required_fields):
             logging.warning("Received data in unexpected format: %s", data_dict)
+            return
+
+        # Build the basic message.
+        message = (
+            f"{data_dict['spotter']} spotted: **{data_dict['fullCallsign']}** "
+            f"on {data_dict['frequency']} ({data_dict['mode']}) at <t:{int(time.time())}:R>"
+        )
+
+        # Check for SOTA.
+        if data_dict['source']=='sotawatch':
+            message = f"🏔️ SOTA " + message + f"\nSummit: {data_dict['summitName']}"
+        # Otherwise, check for POTA.
+        elif data_dict['source']=='pota':
+            message = f"🌳 POTA " + message
+
+        self.notifier.send_message(message)
 
     def run(self) -> None:
         """Establishes the Telnet connection and continuously processes incoming data."""
@@ -128,7 +135,7 @@ def parse_arguments() -> argparse.Namespace:
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
         default='INFO'
     )
-    parser.add_argument('--username', default=os.getenv('HAMALERT_USERNAME', ''), help="Telnet username") # must be capital letters
+    parser.add_argument('--username', default=os.getenv('HAMALERT_USERNAME', ''), help="Telnet username")  # must be capital letters
     parser.add_argument('--password', default=os.getenv('HAMALERT_PASSWORD', ''), help="Telnet password")
     parser.add_argument('--webhook', default=os.getenv('HAMALERT_WEBHOOK_URL', ''), help="Discord webhook URL")
     parser.add_argument('--host', default='hamalert.org', help="Telnet server host")

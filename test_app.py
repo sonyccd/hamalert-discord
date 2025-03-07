@@ -3,21 +3,18 @@ import time
 import unittest
 from unittest.mock import MagicMock, patch
 
-# Import the classes from your main application file (adjust the module name as needed)
 from app import DiscordNotifier, TelnetListener
 
-# A fake Telnet class to simulate the Telnet connection and handshake.
+# Helper class to simulate Telnet interactions.
 class FakeTelnet:
     def __init__(self, responses):
-        self.responses = responses  # List of responses to simulate
+        self.responses = responses  # List of responses to simulate.
         self.index = 0
         self.last_written = None
-        # Create a fake socket with a sendall method.
-        self.sock = MagicMock()
+        self.sock = MagicMock()  # Fake socket for sending keepalive messages.
 
     def read_until(self, match, timeout=30):
         if self.index < len(self.responses):
-            # Simulate a response (each response should be a string).
             resp = self.responses[self.index]
             self.index += 1
             return resp.encode("utf-8") + b"\n"
@@ -40,7 +37,6 @@ class TestDiscordNotifier(unittest.TestCase):
 
     @patch("app.requests.post")
     def test_send_message_success(self, mock_post):
-        # Simulate a successful post (HTTP 204 No Content).
         mock_response = MagicMock()
         mock_response.status_code = 204
         mock_post.return_value = mock_response
@@ -54,7 +50,6 @@ class TestDiscordNotifier(unittest.TestCase):
 
     @patch("app.requests.post")
     def test_send_message_failure(self, mock_post):
-        # Simulate a failure (e.g. HTTP 500).
         mock_response = MagicMock()
         mock_response.status_code = 500
         mock_post.return_value = mock_response
@@ -65,7 +60,6 @@ class TestDiscordNotifier(unittest.TestCase):
 
 class TestTelnetListener(unittest.TestCase):
     def setUp(self):
-        # Username must be capital letters (per the comment in parse_arguments).
         self.username = "TESTUSER"
         self.password = "testpass"
         self.webhook_url = "http://fake-webhook-url"
@@ -79,7 +73,8 @@ class TestTelnetListener(unittest.TestCase):
         listener.process_data(raw_message)
         self.notifier.send_message.assert_called_once_with(raw_message)
 
-    def test_process_data_valid_json_without_sota(self):
+    def test_process_data_valid_json_unknown_source(self):
+        # Valid JSON with a source other than 'sotawatch' or 'pota'.
         listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
         data_dict = {
             "fullCallsign": "K1ABC",
@@ -88,19 +83,19 @@ class TestTelnetListener(unittest.TestCase):
             "mode": "SSB",
             "spotter": "Spotter1",
             "time": "123456",
-            "source": "TestSource"
+            "source": "unknown"  # Unknown source; no emoji should be added.
         }
         json_data = json.dumps(data_dict)
         listener.process_data(json_data)
         self.notifier.send_message.assert_called_once()
         sent_message = self.notifier.send_message.call_args[0][0]
-        self.assertIn("Spotted", sent_message)
-        self.assertIn(data_dict["fullCallsign"], sent_message)
-        self.assertIn(data_dict["frequency"], sent_message)
-        # Without SOTA fields, the message should not be prefixed with "SOTA"
-        self.assertFalse(sent_message.startswith("SOTA"))
+        # Ensure message does not start with either emoji prefix.
+        self.assertFalse(sent_message.startswith("🏔️ SOTA"))
+        self.assertFalse(sent_message.startswith("🌳 POTA"))
+        self.assertIn("spotted:", sent_message)
 
-    def test_process_data_valid_json_with_sota(self):
+    def test_process_data_valid_json_with_sotawatch(self):
+        # Valid JSON for SOTA including summitName.
         listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
         data_dict = {
             "fullCallsign": "K1ABC",
@@ -109,22 +104,36 @@ class TestTelnetListener(unittest.TestCase):
             "mode": "SSB",
             "spotter": "Spotter1",
             "time": "123456",
-            "source": "TestSource",
-            "summitName": "Mount Test",
-            "summitRef": "MT-001",
-            "summitPoints": "10",
-            "summitHeight": "1000"
+            "source": "sotawatch",
+            "summitName": "Mount Test"
         }
         json_data = json.dumps(data_dict)
         listener.process_data(json_data)
         self.notifier.send_message.assert_called_once()
         sent_message = self.notifier.send_message.call_args[0][0]
-        # The message should be prefixed with "SOTA " when SOTA fields are present.
-        self.assertTrue(sent_message.startswith("SOTA Spotted"))
-        self.assertIn("Mount Test", sent_message)
+        self.assertTrue(sent_message.startswith("🏔️ SOTA"))
+        self.assertIn("Summit: Mount Test", sent_message)
+
+    def test_process_data_valid_json_with_pota(self):
+        # Valid JSON for POTA.
+        listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
+        data_dict = {
+            "fullCallsign": "K1XYZ",
+            "callsign": "K1XYZ",
+            "frequency": "7.040",
+            "mode": "CW",
+            "spotter": "Spotter2",
+            "time": "654321",
+            "source": "pota"
+        }
+        json_data = json.dumps(data_dict)
+        listener.process_data(json_data)
+        self.notifier.send_message.assert_called_once()
+        sent_message = self.notifier.send_message.call_args[0][0]
+        self.assertTrue(sent_message.startswith("🌳 POTA"))
+        self.assertIn("spotted:", sent_message)
 
     def test_initialize_connection(self):
-        # Simulate handshake responses.
         responses = [
             f"Hello {self.username}, this is HamAlert",
             f"{self.username} de HamAlert >",
@@ -134,7 +143,7 @@ class TestTelnetListener(unittest.TestCase):
         listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
         result = listener.initialize_connection(fake_telnet)
         self.assertTrue(result)
-        # Verify that the "set/json\n" command was sent.
+        # Verify that the listener sent the JSON mode command.
         self.assertEqual(fake_telnet.last_written, b"set/json\n")
 
 
