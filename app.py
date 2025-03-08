@@ -148,9 +148,9 @@ def parse_arguments() -> argparse.Namespace:
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
         default='INFO'
     )
-    parser.add_argument('--username', default=os.getenv('HAMALERT_USERNAME', ''), help="Telnet username")  # must be capital letters
-    parser.add_argument('--password', default=os.getenv('HAMALERT_PASSWORD', ''), help="Telnet password")
-    parser.add_argument('--webhook', default=os.getenv('HAMALERT_WEBHOOK_URL', ''), help="Discord webhook URL")
+    parser.add_argument('--username', default=os.getenv('USERNAME', ''), help="Telnet username")  # must be capital letters
+    parser.add_argument('--password', default=os.getenv('PASSWORD', ''), help="Telnet password")
+    parser.add_argument('--webhook', default=os.getenv('WEBHOOK_URL', ''), help="Discord webhook URL")
     parser.add_argument('--host', default='hamalert.org', help="Telnet server host")
     parser.add_argument('--port', type=int, default=7300, help="Telnet server port")
     return parser.parse_args()
