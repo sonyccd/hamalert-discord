@@ -67,37 +67,28 @@ class TestTelnetListener(unittest.TestCase):
         # Replace send_message with a MagicMock to capture calls.
         self.notifier.send_message = MagicMock()
 
-    def test_process_data_raw_message(self):
+    def test_message_builder_generic(self):
         listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
-        raw_message = "Non JSON message"
-        listener.process_data(raw_message)
-        self.notifier.send_message.assert_called_once_with(raw_message)
-
-    def test_process_data_valid_json_unknown_source(self):
-        # Valid JSON with a source other than 'sotawatch' or 'pota'.
-        listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
-        data_dict = {
+        payload = {
             "fullCallsign": "K1ABC",
             "callsign": "K1ABC",
             "frequency": "14.250",
             "mode": "SSB",
             "spotter": "Spotter1",
             "time": "123456",
-            "source": "unknown"  # Unknown source; no emoji should be added.
+            "source": "unknown"
         }
-        json_data = json.dumps(data_dict)
-        listener.process_data(json_data)
-        self.notifier.send_message.assert_called_once()
-        sent_message = self.notifier.send_message.call_args[0][0]
-        # Ensure message does not start with either emoji prefix.
-        self.assertFalse(sent_message.startswith("🏔️ SOTA"))
-        self.assertFalse(sent_message.startswith("🌳 POTA"))
-        self.assertIn("spotted:", sent_message)
+        message = listener.message_builder(payload)
+        # Generic message should not be prefixed with SOTA or POTA emojis.
+        self.assertFalse(message.startswith("🏔️ SOTA"))
+        self.assertFalse(message.startswith("🌳 POTA"))
+        # It should contain the basic information.
+        self.assertIn("spotted: **K1ABC**", message)
+        self.assertIn("on 14.250 SSB", message)
 
-    def test_process_data_valid_json_with_sotawatch(self):
-        # Valid JSON for SOTA including summitName.
+    def test_message_builder_sotawatch(self):
         listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
-        data_dict = {
+        payload = {
             "fullCallsign": "K1ABC",
             "callsign": "K1ABC",
             "frequency": "14.250",
@@ -107,31 +98,54 @@ class TestTelnetListener(unittest.TestCase):
             "source": "sotawatch",
             "summitName": "Mount Test"
         }
-        json_data = json.dumps(data_dict)
-        listener.process_data(json_data)
-        self.notifier.send_message.assert_called_once()
-        sent_message = self.notifier.send_message.call_args[0][0]
-        self.assertTrue(sent_message.startswith("🏔️ SOTA"))
-        self.assertIn("Summit: Mount Test", sent_message)
+        message = listener.message_builder(payload)
+        self.assertTrue(message.startswith("🏔️ SOTA"))
+        self.assertIn("spotted: **K1ABC**", message)
+        self.assertIn("\nSummit: Mount Test", message)
 
-    def test_process_data_valid_json_with_pota(self):
-        # Valid JSON for POTA.
+    def test_message_builder_pota(self):
         listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
-        data_dict = {
+        payload = {
             "fullCallsign": "K1XYZ",
             "callsign": "K1XYZ",
             "frequency": "7.040",
             "mode": "CW",
             "spotter": "Spotter2",
             "time": "654321",
-            "source": "pota"
+            "source": "pota",
+            "wwffName": "National Park",
+            "wwffRef": "NP-123"
         }
-        json_data = json.dumps(data_dict)
+        message = listener.message_builder(payload)
+        self.assertTrue(message.startswith("🌳 POTA"))
+        self.assertIn("spotted: **K1XYZ**", message)
+        self.assertIn("\nPark:NP-123  National Park", message)
+        self.assertIn("\nhttps://pota.app/#/park/NP-123", message)
+
+    def test_process_data_raw_message(self):
+        listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
+        raw_message = "Non JSON message"
+        listener.process_data(raw_message)
+        self.notifier.send_message.assert_called_once_with(raw_message)
+
+    def test_process_data_valid_json(self):
+        # Test that process_data uses the message_builder properly.
+        listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
+        payload = {
+            "fullCallsign": "K1ABC",
+            "callsign": "K1ABC",
+            "frequency": "14.250",
+            "mode": "SSB",
+            "spotter": "Spotter1",
+            "time": "123456",
+            "source": "sotawatch",
+            "summitName": "Mount Test"
+        }
+        json_data = json.dumps(payload)
         listener.process_data(json_data)
-        self.notifier.send_message.assert_called_once()
+        expected_message = listener.message_builder(payload)
         sent_message = self.notifier.send_message.call_args[0][0]
-        self.assertTrue(sent_message.startswith("🌳 POTA"))
-        self.assertIn("spotted:", sent_message)
+        self.assertEqual(expected_message, sent_message)
 
     def test_initialize_connection(self):
         responses = [
@@ -143,7 +157,7 @@ class TestTelnetListener(unittest.TestCase):
         listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
         result = listener.initialize_connection(fake_telnet)
         self.assertTrue(result)
-        # Verify that the listener sent the JSON mode command.
+        # Verify that the JSON mode command was sent.
         self.assertEqual(fake_telnet.last_written, b"set/json\n")
 
 

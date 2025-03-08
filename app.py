@@ -34,6 +34,36 @@ class TelnetListener:
         self.password = password
         self.notifier = notifier
 
+    def message_builder(self, payload: dict) -> str:
+        """
+        Builds a Discord message string from the given payload.
+        
+        - The base message includes the spotter, callsign, frequency, mode and a relative timestamp.
+        - If the source is 'sotawatch', the message is prefixed with a mountain emoji (🏔️)
+          and includes the summit name.
+        - If the source is 'pota', the message is prefixed with a tree emoji (🌳) and includes
+          the park name and reference if available.
+        - Note that POTA uses the wwff as its event metadata.
+        """
+        # Build the basic message.
+        message = (
+            f" spotted: **{payload['fullCallsign']}** "
+            f"on {payload['frequency']} {payload['mode']} <t:{int(time.time())}:R>"
+        )
+
+        # SOTA handling.
+        if payload.get('source') == 'sotawatch':
+            message = f"🏔️ SOTA " + message
+            if 'summitName' in payload:
+                message += f"\nSummit: {payload['summitName']}"
+        # POTA handling.
+        elif payload.get('source') == 'pota':
+            message = f"🌳 POTA " + message
+            if 'wwffName' in payload and 'wwffRef' in payload:
+                message += f"\nPark:{payload['wwffRef']}  {payload['wwffName']}"
+                message += f"\nhttps://pota.app/#/park/{payload['wwffRef']}"
+        return message
+
     def initialize_connection(self, tn: telnetlib.Telnet) -> bool:
         """
         Performs the handshake with the Telnet server:
@@ -60,12 +90,7 @@ class TelnetListener:
     def process_data(self, data: str) -> None:
         """
         Processes received data. If it is valid JSON with required fields,
-        formats a message; otherwise, sends the raw message.
-        
-        - If SOTA fields are present, prefixes the message with a mountain emoji (🏔️)
-          and includes the summit name.
-        - If POTA fields are present, prefixes the message with a tree emoji (🌳)
-          and includes the park name and reference.
+        uses the message_builder to format a message; otherwise, sends the raw message.
         """
         try:
             data_dict = json.loads(data)
@@ -78,19 +103,7 @@ class TelnetListener:
             logging.warning("Received data in unexpected format: %s", data_dict)
             return
 
-        # Build the basic message.
-        message = (
-            f"{data_dict['spotter']} spotted: **{data_dict['fullCallsign']}** "
-            f"on {data_dict['frequency']} ({data_dict['mode']}) at <t:{int(time.time())}:R>"
-        )
-
-        # Check for SOTA.
-        if data_dict['source']=='sotawatch':
-            message = f"🏔️ SOTA " + message + f"\nSummit: {data_dict['summitName']}"
-        # Otherwise, check for POTA.
-        elif data_dict['source']=='pota':
-            message = f"🌳 POTA " + message
-
+        message = self.message_builder(data_dict)
         self.notifier.send_message(message)
 
     def run(self) -> None:
