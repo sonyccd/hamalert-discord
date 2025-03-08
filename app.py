@@ -30,7 +30,7 @@ class TelnetListener:
     def __init__(self, host: str, port: int, username: str, password: str, notifier: DiscordNotifier):
         self.host = host
         self.port = port
-        self.username = username
+        self.username = username.upper() # call sign has to be in upper case
         self.password = password
         self.notifier = notifier
 

@@ -67,6 +67,12 @@ class TestTelnetListener(unittest.TestCase):
         # Replace send_message with a MagicMock to capture calls.
         self.notifier.send_message = MagicMock()
 
+    def test_username_conversion(self):
+        """Test that the listener converts a lowercase username to uppercase."""
+        lower_username = "testuser"
+        listener = TelnetListener("fakehost", 1234, lower_username, self.password, self.notifier)
+        self.assertEqual(listener.username, lower_username.upper())
+    
     def test_message_builder_generic(self):
         listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
         payload = {
