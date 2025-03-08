@@ -126,7 +126,7 @@ class TestTelnetListener(unittest.TestCase):
         self.assertTrue(message.startswith("🌳 POTA"))
         self.assertIn("spotted: **K1XYZ**", message)
         self.assertIn("\nPark:NP-123  National Park", message)
-        self.assertIn("\nhttps://pota.app/#/park/NP-123", message)
+        self.assertIn("\n<https://pota.app/#/park/NP-123>", message)
 
     def test_process_data_raw_message(self):
         listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)

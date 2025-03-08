@@ -61,7 +61,7 @@ class TelnetListener:
             message = f"🌳 POTA " + message
             if 'wwffName' in payload and 'wwffRef' in payload:
                 message += f"\nPark:{payload['wwffRef']}  {payload['wwffName']}"
-                message += f"\nhttps://pota.app/#/park/{payload['wwffRef']}"
+                message += f"\n<https://pota.app/#/park/{payload['wwffRef']}>"
         return message
 
     def initialize_connection(self, tn: telnetlib.Telnet) -> bool:
