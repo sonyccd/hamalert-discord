@@ -3,6 +3,8 @@ import time
 import unittest
 from unittest.mock import MagicMock, patch
 
+import telnetlib
+
 from app import DiscordNotifier, TelnetListener
 
 # Helper class to simulate Telnet interactions.
@@ -72,7 +74,7 @@ class TestTelnetListener(unittest.TestCase):
         lower_username = "testuser"
         listener = TelnetListener("fakehost", 1234, lower_username, self.password, self.notifier)
         self.assertEqual(listener.username, lower_username.upper())
-    
+
     def test_message_builder_generic(self):
         listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
         payload = {
@@ -135,7 +137,6 @@ class TestTelnetListener(unittest.TestCase):
         self.notifier.send_message.assert_called_once_with(raw_message)
 
     def test_process_data_valid_json(self):
-        # Test that process_data uses the message_builder properly.
         listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
         payload = {
             "fullCallsign": "K1ABC",
@@ -165,6 +166,56 @@ class TestTelnetListener(unittest.TestCase):
         self.assertTrue(result)
         # Verify that the JSON mode command was sent.
         self.assertEqual(fake_telnet.last_written, b"set/json\n")
+
+    @patch("app.telnetlib.Telnet", side_effect=ConnectionRefusedError("refused"))
+    @patch("app.time.sleep", side_effect=lambda s: (_ for _ in ()).throw(SystemExit))
+    def test_run_retries_on_connection_refused(self, mock_sleep, mock_telnet_ctor):
+        """If Telnet(...) raises ConnectionRefusedError, run() should back off once then retry."""
+        listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
+        with self.assertRaises(SystemExit):
+            listener.run()
+        # initial backoff should be 1 second
+        mock_sleep.assert_called_once_with(1)
+
+    @patch("app.telnetlib.Telnet")
+    @patch("app.time.sleep", lambda s: None)
+    def test_run_processes_one_message_and_exits(self, mock_telnet_ctor):
+        """Simulate a successful connect + one payload, then break out via SystemExit."""
+        # Prepare a valid payload for main loop
+        payload = {
+            "fullCallsign": "K1FOO",
+            "callsign": "K1FOO",
+            "frequency": "14.000",
+            "mode": "FT8",
+            "spotter": "Someone",
+            "time": "111111",
+            "source": "unknown"
+        }
+        responses = [
+            "login: ",
+            "password: ",
+            f"Hello {self.username}, this is HamAlert",
+            f"{self.username} de HamAlert >",
+            "Operation successful",
+            json.dumps(payload),
+        ]
+        fake_telnet = FakeTelnet(responses)
+        mock_telnet_ctor.return_value = fake_telnet
+
+        # Subclass to raise SystemExit after processing one message
+        class OneShotListener(TelnetListener):
+            def process_data(self_inner, data):
+                super(OneShotListener, self_inner).process_data(data)
+                raise SystemExit
+
+        listener = OneShotListener("fakehost", 1234, self.username, self.password, self.notifier)
+
+        with self.assertRaises(SystemExit):
+            listener.run()
+
+        # Verify that our payload was turned into a Discord message
+        expected = listener.message_builder(payload)
+        self.notifier.send_message.assert_called_once_with(expected)
 
 
 if __name__ == "__main__":

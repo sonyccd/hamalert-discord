@@ -30,33 +30,23 @@ class TelnetListener:
     def __init__(self, host: str, port: int, username: str, password: str, notifier: DiscordNotifier):
         self.host = host
         self.port = port
-        self.username = username.upper() # call sign has to be in upper case
+        self.username = username.upper()  # call sign must be uppercase
         self.password = password
         self.notifier = notifier
 
     def message_builder(self, payload: dict) -> str:
         """
         Builds a Discord message string from the given payload.
-        
-        - The base message includes the spotter, callsign, frequency, mode and a relative timestamp.
-        - If the source is 'sotawatch', the message is prefixed with a mountain emoji (🏔️)
-          and includes the summit name.
-        - If the source is 'pota', the message is prefixed with a tree emoji (🌳) and includes
-          the park name and reference if available.
-        - Note that POTA uses the wwff as its event metadata.
         """
-        # Build the basic message.
         message = (
             f" spotted: **{payload['fullCallsign']}** "
             f"on {payload['frequency']} {payload['mode']} <t:{int(time.time())}:R>"
         )
 
-        # SOTA handling.
         if payload.get('source') == 'sotawatch':
             message = f"🏔️ SOTA " + message
             if 'summitName' in payload:
                 message += f"\nSummit: {payload['summitName']}"
-        # POTA handling.
         elif payload.get('source') == 'pota':
             message = f"🌳 POTA " + message
             if 'wwffName' in payload and 'wwffRef' in payload:
@@ -66,10 +56,7 @@ class TelnetListener:
 
     def initialize_connection(self, tn: telnetlib.Telnet) -> bool:
         """
-        Performs the handshake with the Telnet server:
-          - Waits for greeting messages
-          - Sets the connection to JSON mode.
-        Returns True if initialization is successful.
+        Performs the handshake with the Telnet server and sets JSON mode.
         """
         initialized = False
         while not initialized:
@@ -89,8 +76,8 @@ class TelnetListener:
 
     def process_data(self, data: str) -> None:
         """
-        Processes received data. If it is valid JSON with required fields,
-        uses the message_builder to format a message; otherwise, sends the raw message.
+        Processes received data. If valid JSON with required fields, sends formatted message;
+        otherwise sends the raw data.
         """
         try:
             data_dict = json.loads(data)
@@ -107,34 +94,46 @@ class TelnetListener:
         self.notifier.send_message(message)
 
     def run(self) -> None:
-        """Establishes the Telnet connection and continuously processes incoming data."""
-        try:
-            with telnetlib.Telnet(self.host, self.port) as tn:
-                # Login
-                tn.read_until(b"login: ")
-                tn.write(self.username.encode("utf-8") + b"\n")
-                tn.read_until(b"password: ")
-                tn.write(self.password.encode("utf-8") + b"\n")
-                
-                # Perform handshake and initialize JSON mode.
-                if not self.initialize_connection(tn):
-                    logging.error("Failed to initialize connection.")
-                    return
+        """
+        Continuously attempts to connect; on failures, retries with exponential backoff.
+        """
+        backoff = 1        # initial backoff in seconds
+        max_backoff = 60   # cap backoff at 1 minute
 
-                # Main loop: read and process incoming data.
-                while True:
-                    data = tn.read_until(b"\n", timeout=30).decode("utf-8").strip()
-                    if not data:
-                        logging.debug("Timeout hit, sending keepalive.")
-                        tn.sock.sendall(telnetlib.IAC + telnetlib.NOP)
-                        continue
-                    logging.info("Received data: %s", data)
-                    self.process_data(data)
+        while True:
+            try:
+                logging.info("Connecting to %s:%s", self.host, self.port)
+                with telnetlib.Telnet(self.host, self.port) as tn:
+                    backoff = 1  # reset backoff after successful connect
 
-        except ConnectionRefusedError:
-            logging.error("Telnet connection refused. Ensure the server is running and reachable.")
-        except Exception as e:
-            logging.error("An error occurred: %s", e)
+                    # Login
+                    tn.read_until(b"login: ")
+                    tn.write(self.username.encode("utf-8") + b"\n")
+                    tn.read_until(b"password: ")
+                    tn.write(self.password.encode("utf-8") + b"\n")
+
+                    # Handshake & JSON mode init
+                    if not self.initialize_connection(tn):
+                        logging.error("Failed to initialize connection.")
+                        return
+
+                    # Main loop: read and process incoming data
+                    while True:
+                        data = tn.read_until(b"\n", timeout=30).decode("utf-8").strip()
+                        if not data:
+                            logging.debug("Timeout hit, sending keepalive.")
+                            tn.sock.sendall(telnetlib.IAC + telnetlib.NOP)
+                            continue
+                        logging.info("Received data: %s", data)
+                        self.process_data(data)
+
+            except ConnectionRefusedError as e:
+                logging.error("Connection refused: %s. Retrying in %s seconds…", e, backoff)
+            except Exception as e:
+                logging.error("Telnet listener error: %s. Retrying in %s seconds…", e, backoff)
+
+            time.sleep(backoff)
+            backoff = min(backoff * 2, max_backoff)
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -148,7 +147,7 @@ def parse_arguments() -> argparse.Namespace:
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
         default='INFO'
     )
-    parser.add_argument('--username', default=os.getenv('USERNAME', ''), help="Telnet username")  # must be capital letters
+    parser.add_argument('--username', default=os.getenv('USERNAME', ''), help="Telnet username")
     parser.add_argument('--password', default=os.getenv('PASSWORD', ''), help="Telnet password")
     parser.add_argument('--webhook', default=os.getenv('WEBHOOK_URL', ''), help="Discord webhook URL")
     parser.add_argument('--host', default='hamalert.org', help="Telnet server host")
@@ -161,7 +160,7 @@ def main() -> None:
     logging.basicConfig(level=args.log_level, format='%(asctime)s [%(levelname)s] %(message)s')
 
     if not args.username or not args.password or not args.webhook:
-        logging.error("Username, password, and webhook URL must be provided via command-line or environment variables.")
+        logging.error("Username, password, and webhook URL must be provided.")
         exit(1)
 
     notifier = DiscordNotifier(args.webhook)
