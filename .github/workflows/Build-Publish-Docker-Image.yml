@@ -31,7 +31,6 @@ jobs:
         with:
           context: .
           push: true
-          # replace `<your-repo>` with your Docker Hub repo name
           tags: |
-            ${{ secrets.DOCKER_HUB_USERNAME }}/bradbaze/hamalert-discord:latest
-            ${{ secrets.DOCKER_HUB_USERNAME }}/bradbaze/hamalert-discord:${{ github.sha }}
+            ${{ secrets.DOCKER_HUB_USERNAME }}/hamalert-discord:latest
+            ${{ secrets.DOCKER_HUB_USERNAME }}/hamalert-discord:${{ github.sha }}
