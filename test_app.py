@@ -5,7 +5,12 @@ from unittest.mock import MagicMock, patch
 
 import telnetlib
 
-from app import DiscordNotifier, TelnetListener
+from app import (
+    DiscordNotifier,
+    TelnetListener,
+    HeartbeatService,
+)
+
 
 # Helper class to simulate Telnet interactions.
 class FakeTelnet:
@@ -127,7 +132,7 @@ class TestTelnetListener(unittest.TestCase):
         message = listener.message_builder(payload)
         self.assertTrue(message.startswith("🌳 POTA"))
         self.assertIn("spotted: **K1XYZ**", message)
-        self.assertIn("\nPark:NP-123  National Park", message)
+        self.assertIn("\nPark:NP-123 National Park", message)
         self.assertIn("\n<https://pota.app/#/park/NP-123>", message)
 
     def test_process_data_raw_message(self):
@@ -181,7 +186,6 @@ class TestTelnetListener(unittest.TestCase):
     @patch("app.time.sleep", lambda s: None)
     def test_run_processes_one_message_and_exits(self, mock_telnet_ctor):
         """Simulate a successful connect + one payload, then break out via SystemExit."""
-        # Prepare a valid payload for main loop
         payload = {
             "fullCallsign": "K1FOO",
             "callsign": "K1FOO",
@@ -202,20 +206,44 @@ class TestTelnetListener(unittest.TestCase):
         fake_telnet = FakeTelnet(responses)
         mock_telnet_ctor.return_value = fake_telnet
 
-        # Subclass to raise SystemExit after processing one message
         class OneShotListener(TelnetListener):
             def process_data(self_inner, data):
                 super(OneShotListener, self_inner).process_data(data)
                 raise SystemExit
 
         listener = OneShotListener("fakehost", 1234, self.username, self.password, self.notifier)
-
         with self.assertRaises(SystemExit):
             listener.run()
 
-        # Verify that our payload was turned into a Discord message
         expected = listener.message_builder(payload)
         self.notifier.send_message.assert_called_once_with(expected)
+
+
+class TestHeartbeatService(unittest.TestCase):
+    @patch("app.logging.warning")
+    def test_start_without_url_logs_warning(self, mock_warn):
+        svc = HeartbeatService(url="", interval=1)
+        svc._thread = MagicMock()
+        svc.start()
+        mock_warn.assert_called_once_with("No heartbeat URL provided; heartbeat disabled.")
+        svc._thread.start.assert_not_called()
+
+    @patch("app.threading.Thread.start")
+    @patch("app.logging.info")
+    def test_start_with_url_starts_thread(self, mock_info, mock_thread_start):
+        svc = HeartbeatService(url="http://hb", interval=1)
+        svc.start()
+        mock_info.assert_called_with("Starting heartbeat service (interval: %ss) → %s", 1, "http://hb")
+        mock_thread_start.assert_called_once()
+
+    @patch("app.requests.get")
+    @patch("app.time.sleep", side_effect=Exception("STOP"))
+    def test_run_pings_once_then_stops(self, mock_sleep, mock_get):
+        svc = HeartbeatService(url="http://hb", interval=1)
+        with self.assertRaises(Exception) as cm:
+            svc._run()
+        self.assertEqual(str(cm.exception), "STOP")
+        mock_get.assert_called_once_with("http://hb", timeout=10)
 
 
 if __name__ == "__main__":
