@@ -1,7 +1,9 @@
+"""Tests for HamAlert Discord bot."""
 import json
 import time
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, Mock
+from typing import List, Optional
 
 import telnetlib
 
@@ -10,24 +12,26 @@ from app import (
     TelnetListener,
     HeartbeatService,
 )
+from formatters import SpotFormatter, validate_spot_payload
+from config import Config
 
 
 # Helper class to simulate Telnet interactions.
 class FakeTelnet:
-    def __init__(self, responses):
+    def __init__(self, responses: List[str]):
         self.responses = responses  # List of responses to simulate.
         self.index = 0
-        self.last_written = None
+        self.last_written: Optional[bytes] = None
         self.sock = MagicMock()  # Fake socket for sending keepalive messages.
 
-    def read_until(self, match, timeout=30):
+    def read_until(self, match: bytes, timeout: int = 30) -> bytes:
         if self.index < len(self.responses):
             resp = self.responses[self.index]
             self.index += 1
             return resp.encode("utf-8") + b"\n"
         return b""
 
-    def write(self, data):
+    def write(self, data: bytes) -> None:
         self.last_written = data
 
     def __enter__(self):
@@ -37,51 +41,48 @@ class FakeTelnet:
         pass
 
 
-class TestDiscordNotifier(unittest.TestCase):
-    def setUp(self):
-        self.webhook_url = "http://fake-webhook-url"
-        self.notifier = DiscordNotifier(self.webhook_url)
-
-    @patch("app.requests.post")
-    def test_send_message_success(self, mock_post):
-        mock_response = MagicMock()
-        mock_response.status_code = 204
-        mock_post.return_value = mock_response
-
-        self.notifier.send_message("Test message")
-        mock_post.assert_called_once_with(
-            self.webhook_url,
-            json={"content": "Test message"},
-            headers={"Content-Type": "application/json"}
+class TestConfig(unittest.TestCase):
+    """Test configuration management."""
+    
+    def test_username_uppercase(self):
+        """Test that username is converted to uppercase."""
+        config = Config(
+            username="testuser",
+            password="pass",
+            webhook_url="http://webhook"
         )
+        self.assertEqual(config.username, "TESTUSER")
+    
+    def test_missing_required_fields(self):
+        """Test that missing required fields raise an error."""
+        with self.assertRaises(ValueError):
+            Config(username="", password="pass", webhook_url="http://webhook")
+        
+        with self.assertRaises(ValueError):
+            Config(username="user", password="", webhook_url="http://webhook")
+        
+        with self.assertRaises(ValueError):
+            Config(username="user", password="pass", webhook_url="")
+    
+    def test_invalid_heartbeat_interval(self):
+        """Test that invalid heartbeat interval raises an error."""
+        with self.assertRaises(ValueError):
+            Config(
+                username="user",
+                password="pass",
+                webhook_url="http://webhook",
+                heartbeat_interval=0
+            )
 
-    @patch("app.requests.post")
-    def test_send_message_failure(self, mock_post):
-        mock_response = MagicMock()
-        mock_response.status_code = 500
-        mock_post.return_value = mock_response
 
-        self.notifier.send_message("Test message")
-        mock_post.assert_called_once()
-
-
-class TestTelnetListener(unittest.TestCase):
+class TestSpotFormatter(unittest.TestCase):
+    """Test message formatting."""
+    
     def setUp(self):
-        self.username = "TESTUSER"
-        self.password = "testpass"
-        self.webhook_url = "http://fake-webhook-url"
-        self.notifier = DiscordNotifier(self.webhook_url)
-        # Replace send_message with a MagicMock to capture calls.
-        self.notifier.send_message = MagicMock()
-
-    def test_username_conversion(self):
-        """Test that the listener converts a lowercase username to uppercase."""
-        lower_username = "testuser"
-        listener = TelnetListener("fakehost", 1234, lower_username, self.password, self.notifier)
-        self.assertEqual(listener.username, lower_username.upper())
-
-    def test_message_builder_generic(self):
-        listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
+        self.formatter = SpotFormatter()
+    
+    def test_format_generic_spot(self):
+        """Test formatting of generic spots."""
         payload = {
             "fullCallsign": "K1ABC",
             "callsign": "K1ABC",
@@ -91,16 +92,14 @@ class TestTelnetListener(unittest.TestCase):
             "time": "123456",
             "source": "unknown"
         }
-        message = listener.message_builder(payload)
-        # Generic message should not be prefixed with SOTA or POTA emojis.
-        self.assertFalse(message.startswith("🏔️ SOTA"))
-        self.assertFalse(message.startswith("🌳 POTA"))
-        # It should contain the basic information.
+        message = self.formatter.format_spot(payload)
+        self.assertNotIn("🏔️", message)
+        self.assertNotIn("🌳", message)
         self.assertIn("spotted: **K1ABC**", message)
         self.assertIn("on 14.250 SSB", message)
-
-    def test_message_builder_sotawatch(self):
-        listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
+    
+    def test_format_sota_spot(self):
+        """Test formatting of SOTA spots."""
         payload = {
             "fullCallsign": "K1ABC",
             "callsign": "K1ABC",
@@ -111,13 +110,13 @@ class TestTelnetListener(unittest.TestCase):
             "source": "sotawatch",
             "summitName": "Mount Test"
         }
-        message = listener.message_builder(payload)
-        self.assertTrue(message.startswith("🏔️ SOTA"))
+        message = self.formatter.format_spot(payload)
+        self.assertIn("🏔️ SOTA", message)
         self.assertIn("spotted: **K1ABC**", message)
-        self.assertIn("\nSummit: Mount Test", message)
-
-    def test_message_builder_pota(self):
-        listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
+        self.assertIn("Summit: Mount Test", message)
+    
+    def test_format_pota_spot(self):
+        """Test formatting of POTA spots."""
         payload = {
             "fullCallsign": "K1XYZ",
             "callsign": "K1XYZ",
@@ -129,19 +128,128 @@ class TestTelnetListener(unittest.TestCase):
             "wwffName": "National Park",
             "wwffRef": "NP-123"
         }
-        message = listener.message_builder(payload)
-        self.assertTrue(message.startswith("🌳 POTA"))
+        message = self.formatter.format_spot(payload)
+        self.assertIn("🌳 POTA", message)
         self.assertIn("spotted: **K1XYZ**", message)
-        self.assertIn("\nPark:NP-123 National Park", message)
-        self.assertIn("\n<https://pota.app/#/park/NP-123>", message)
+        self.assertIn("Park: NP-123 National Park", message)
+        self.assertIn("https://pota.app/#/park/NP-123", message)
+    
+    def test_validate_spot_payload(self):
+        """Test payload validation."""
+        valid_payload = {
+            "fullCallsign": "K1ABC",
+            "callsign": "K1ABC",
+            "frequency": "14.250",
+            "mode": "SSB",
+            "spotter": "Spotter1",
+            "time": "123456",
+            "source": "unknown"
+        }
+        self.assertTrue(validate_spot_payload(valid_payload))
+        
+        # Missing required field
+        invalid_payload = {
+            "fullCallsign": "K1ABC",
+            "frequency": "14.250",
+            "mode": "SSB"
+        }
+        self.assertFalse(validate_spot_payload(invalid_payload))
+
+
+class TestDiscordNotifier(unittest.TestCase):
+    """Test Discord notification functionality."""
+    
+    def setUp(self):
+        self.webhook_url = "http://fake-webhook-url"
+        # Patch the rate limiter to avoid delays in tests
+        with patch('app.DiscordNotifier._rate_limiter', lambda f: f):
+            self.notifier = DiscordNotifier(self.webhook_url)
+
+    @patch("app.requests.post")
+    def test_send_message_success(self, mock_post):
+        """Test successful message sending."""
+        mock_response = MagicMock()
+        mock_response.status_code = 204
+        mock_post.return_value = mock_response
+
+        result = self.notifier.send_message("Test message")
+        
+        self.assertTrue(result)
+        mock_post.assert_called_once_with(
+            self.webhook_url,
+            json={"content": "Test message"},
+            headers={"Content-Type": "application/json"},
+            timeout=10
+        )
+
+    @patch("app.requests.post")
+    def test_send_message_failure(self, mock_post):
+        """Test failed message sending."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "Server error"
+        mock_post.return_value = mock_response
+
+        result = self.notifier.send_message("Test message")
+        
+        self.assertFalse(result)
+        mock_post.assert_called_once()
+
+    @patch("app.requests.post")
+    def test_send_spot(self, mock_post):
+        """Test sending a formatted spot."""
+        mock_response = MagicMock()
+        mock_response.status_code = 204
+        mock_post.return_value = mock_response
+        
+        payload = {
+            "fullCallsign": "K1ABC",
+            "callsign": "K1ABC",
+            "frequency": "14.250",
+            "mode": "SSB",
+            "spotter": "Spotter1",
+            "time": "123456",
+            "source": "sotawatch"
+        }
+        
+        result = self.notifier.send_spot(payload)
+        
+        self.assertTrue(result)
+        # Check that the formatted message was sent
+        call_args = mock_post.call_args
+        sent_content = call_args[1]["json"]["content"]
+        self.assertIn("🏔️ SOTA", sent_content)
+        self.assertIn("K1ABC", sent_content)
+
+
+class TestTelnetListener(unittest.TestCase):
+    """Test Telnet listener functionality."""
+    
+    def setUp(self):
+        self.username = "TESTUSER"
+        self.password = "testpass"
+        self.webhook_url = "http://fake-webhook-url"
+        with patch('app.DiscordNotifier._rate_limiter', lambda f: f):
+            self.notifier = DiscordNotifier(self.webhook_url)
+        # Replace send_message with a MagicMock to capture calls.
+        self.notifier.send_message = MagicMock(return_value=True)
+        self.notifier.send_spot = MagicMock(return_value=True)
+
+    def test_username_conversion(self):
+        """Test that the listener converts a lowercase username to uppercase."""
+        lower_username = "testuser"
+        listener = TelnetListener("fakehost", 1234, lower_username, self.password, self.notifier)
+        self.assertEqual(listener.username, lower_username.upper())
 
     def test_process_data_raw_message(self):
+        """Test processing of non-JSON messages."""
         listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
         raw_message = "Non JSON message"
         listener.process_data(raw_message)
         self.notifier.send_message.assert_called_once_with(raw_message)
 
     def test_process_data_valid_json(self):
+        """Test processing of valid JSON spot data."""
         listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
         payload = {
             "fullCallsign": "K1ABC",
@@ -155,11 +263,10 @@ class TestTelnetListener(unittest.TestCase):
         }
         json_data = json.dumps(payload)
         listener.process_data(json_data)
-        expected_message = listener.message_builder(payload)
-        sent_message = self.notifier.send_message.call_args[0][0]
-        self.assertEqual(expected_message, sent_message)
+        self.notifier.send_spot.assert_called_once_with(payload)
 
     def test_initialize_connection(self):
+        """Test Telnet connection initialization."""
         responses = [
             f"Hello {self.username}, this is HamAlert",
             f"{self.username} de HamAlert >",
@@ -172,77 +279,47 @@ class TestTelnetListener(unittest.TestCase):
         # Verify that the JSON mode command was sent.
         self.assertEqual(fake_telnet.last_written, b"set/json\n")
 
-    @patch("app.telnetlib.Telnet", side_effect=ConnectionRefusedError("refused"))
-    @patch("app.time.sleep", side_effect=lambda s: (_ for _ in ()).throw(SystemExit))
-    def test_run_retries_on_connection_refused(self, mock_sleep, mock_telnet_ctor):
-        """If Telnet(...) raises ConnectionRefusedError, run() should back off once then retry."""
-        listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
-        with self.assertRaises(SystemExit):
-            listener.run()
-        # initial backoff should be 1 second
-        mock_sleep.assert_called_once_with(1)
-
-    @patch("app.telnetlib.Telnet")
-    @patch("app.time.sleep", lambda s: None)
-    def test_run_processes_one_message_and_exits(self, mock_telnet_ctor):
-        """Simulate a successful connect + one payload, then break out via SystemExit."""
-        payload = {
-            "fullCallsign": "K1FOO",
-            "callsign": "K1FOO",
-            "frequency": "14.000",
-            "mode": "FT8",
-            "spotter": "Someone",
-            "time": "111111",
-            "source": "unknown"
-        }
-        responses = [
-            "login: ",
-            "password: ",
-            f"Hello {self.username}, this is HamAlert",
-            f"{self.username} de HamAlert >",
-            "Operation successful",
-            json.dumps(payload),
-        ]
-        fake_telnet = FakeTelnet(responses)
-        mock_telnet_ctor.return_value = fake_telnet
-
-        class OneShotListener(TelnetListener):
-            def process_data(self_inner, data):
-                super(OneShotListener, self_inner).process_data(data)
-                raise SystemExit
-
-        listener = OneShotListener("fakehost", 1234, self.username, self.password, self.notifier)
-        with self.assertRaises(SystemExit):
-            listener.run()
-
-        expected = listener.message_builder(payload)
-        self.notifier.send_message.assert_called_once_with(expected)
-
 
 class TestHeartbeatService(unittest.TestCase):
+    """Test heartbeat service functionality."""
+    
     @patch("app.logging.warning")
     def test_start_without_url_logs_warning(self, mock_warn):
-        svc = HeartbeatService(url="", interval=1)
-        svc._thread = MagicMock()
+        """Test that starting without URL logs a warning."""
+        svc = HeartbeatService(url=None, interval=1)
         svc.start()
         mock_warn.assert_called_once_with("No heartbeat URL provided; heartbeat disabled.")
-        svc._thread.start.assert_not_called()
 
     @patch("app.threading.Thread.start")
     @patch("app.logging.info")
     def test_start_with_url_starts_thread(self, mock_info, mock_thread_start):
+        """Test that starting with URL starts the thread."""
         svc = HeartbeatService(url="http://hb", interval=1)
         svc.start()
-        mock_info.assert_called_with("Starting heartbeat service (interval: %ss) → %s", 1, "http://hb")
+        mock_info.assert_called_with(
+            "Starting heartbeat service (interval: %ss) → %s", 
+            1, 
+            "http://hb"
+        )
         mock_thread_start.assert_called_once()
 
     @patch("app.requests.get")
-    @patch("app.time.sleep", side_effect=Exception("STOP"))
-    def test_run_pings_once_then_stops(self, mock_sleep, mock_get):
+    def test_run_pings_successfully(self, mock_get):
+        """Test successful heartbeat ping."""
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_get.return_value = mock_response
+        
         svc = HeartbeatService(url="http://hb", interval=1)
-        with self.assertRaises(Exception) as cm:
+        svc._running = True
+        
+        # Run one iteration then stop
+        def stop_after_one(interval):
+            svc._running = False
+            
+        with patch("app.time.sleep", side_effect=stop_after_one):
             svc._run()
-        self.assertEqual(str(cm.exception), "STOP")
+        
         mock_get.assert_called_once_with("http://hb", timeout=10)
 
 

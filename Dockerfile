@@ -12,14 +12,17 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the application code.
-COPY app.py .
+COPY app.py config.py formatters.py utils.py ./
 
-# The application uses environment variables (HAMALERT_USERNAME, HAMALERT_PASSWORD, HAMALERT_WEBHOOK_URL).
+# The application uses environment variables.
 # You can pass these at runtime using docker run -e, or define defaults here.
-# For example:
-# ENV HAMALERT_USERNAME=your_username
-# ENV HAMALERT_PASSWORD=your_password
-# ENV HAMALERT_WEBHOOK_URL=https://your.discord.webhook.url
+# Required environment variables:
+# ENV USERNAME=your_username
+# ENV PASSWORD=your_password
+# ENV WEBHOOK_URL=https://your.discord.webhook.url
+# Optional environment variables:
+# ENV UPTIMEKUMA_URL=https://your.uptime.kuma.url
+# ENV HEARTBEAT_INTERVAL=300
 
 # Run the application.
 CMD ["python", "app.py"]
