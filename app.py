@@ -24,16 +24,18 @@ REQUEST_TIMEOUT = 10
 class HeartbeatService:
     """Periodically pings an Uptime Kuma push URL to signal liveness."""
 
-    def __init__(self, url: Optional[str], interval: int = 600):
+    def __init__(self, url: Optional[str], interval: int = 600, check_callback: Optional[callable] = None):
         """
         Initialize heartbeat service.
-        
+
         Args:
             url: Uptime Kuma push URL
             interval: Heartbeat interval in seconds
+            check_callback: Function that returns True if service is healthy
         """
         self.url = url
         self.interval = interval
+        self.check_callback = check_callback
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._running = False
 
@@ -58,15 +60,19 @@ class HeartbeatService:
     def _run(self) -> None:
         """Run the heartbeat loop."""
         while self._running:
-            try:
-                resp = requests.get(self.url, timeout=REQUEST_TIMEOUT)
-                if resp.ok:
-                    logging.debug("Heartbeat ping succeeded.")
-                else:
-                    logging.warning("Heartbeat ping returned %s", resp.status_code)
-            except Exception as e:
-                logging.error("Heartbeat ping error: %s", e)
-            
+            # Only send heartbeat if service is healthy
+            if self.check_callback is None or self.check_callback():
+                try:
+                    resp = requests.get(self.url, timeout=REQUEST_TIMEOUT)
+                    if resp.ok:
+                        logging.debug("Heartbeat ping succeeded.")
+                    else:
+                        logging.warning("Heartbeat ping returned %s", resp.status_code)
+                except Exception as e:
+                    logging.error("Heartbeat ping error: %s", e)
+            else:
+                logging.debug("Skipping heartbeat - service not connected")
+
             time.sleep(self.interval)
 
 
@@ -166,6 +172,11 @@ class TelnetListener:
         self.password = password
         self.notifier = notifier
         self._running = False
+        self._connected = False
+
+    def is_connected(self) -> bool:
+        """Check if the listener is currently connected to HamAlert."""
+        return self._connected and self._running
 
     def initialize_connection(self, tn: telnetlib.Telnet) -> bool:
         """
@@ -178,23 +189,65 @@ class TelnetListener:
             True if successful, False otherwise
         """
         try:
+            # Give the server a moment to respond after password
+            import time
+            time.sleep(0.5)
+
+            # Try to read any immediate response
+            try:
+                immediate_response = tn.read_very_eager()
+                if immediate_response:
+                    response_text = immediate_response.decode().strip()
+                    logging.info("Immediate response after password: %s", response_text)
+                    if "login failed" in response_text.lower() or "check username" in response_text.lower():
+                        logging.error("Authentication failed: %s", response_text)
+                        return False
+                    # Check if we already got the command prompt in the immediate response
+                    if ">" in response_text and "hamalert" in response_text.lower():
+                        logging.info("Command prompt detected in immediate response, setting JSON mode")
+                        tn.write(b"set/json\n")
+                        # Read the response to set/json command
+                        json_response = tn.read_until(b"\n", timeout=5).decode().strip()
+                        logging.info("JSON mode response: %s", json_response)
+                        if "operation successful" in json_response.lower():
+                            logging.info("JSON mode enabled successfully")
+                            self._connected = True
+                            return True
+            except Exception as e:
+                logging.debug("Error reading immediate response: %s", e)
+
             while True:
-                line = tn.read_until(b"\n", timeout=DEFAULT_TIMEOUT).decode().strip()
-                logging.info("Handshake: %s", line)
-                
-                if line.endswith("HamAlert"):
-                    continue
-                elif line.endswith(">"):
-                    tn.write(b"set/json\n")
-                    continue
-                elif line == "Operation successful":
-                    return True
-                elif not line:
-                    logging.error("Connection closed during initialization")
+                try:
+                    line = tn.read_until(b"\n", timeout=5).decode().strip()
+                    logging.info("Handshake: '%s'", line)
+
+                    if not line:
+                        logging.error("Empty line received - connection may be closed")
+                        return False
+                    elif "invalid" in line.lower() or "incorrect" in line.lower() or "denied" in line.lower() or "failed" in line.lower():
+                        logging.error("Authentication failed: %s", line)
+                        return False
+                    elif line.endswith("HamAlert"):
+                        logging.info("Received HamAlert banner")
+                        continue
+                    elif line.endswith(">") or ">" in line:
+                        logging.info("Received command prompt, setting JSON mode")
+                        tn.write(b"set/json\n")
+                        continue
+                    elif "operation successful" in line.lower() or "json mode" in line.lower():
+                        logging.info("JSON mode enabled successfully")
+                        self._connected = True
+                        return True
+                    else:
+                        logging.info("Other handshake message: %s", line)
+
+                except Exception as read_error:
+                    logging.error("Error reading handshake line: %s", read_error)
                     return False
                     
         except Exception as e:
             logging.error("Error during initialization: %s", e)
+            self._connected = False
             return False
 
     def process_data(self, data: str) -> None:
@@ -221,16 +274,38 @@ class TelnetListener:
     def _connect_and_run(self) -> None:
         """Connect to HamAlert and process messages."""
         logging.info("Connecting to %s:%s", self.host, self.port)
-        
-        with telnetlib.Telnet(self.host, self.port) as tn:
+
+        try:
+            tn = telnetlib.Telnet(self.host, self.port, timeout=DEFAULT_TIMEOUT)
+            logging.info("TCP connection established successfully")
+        except Exception as e:
+            logging.error("Failed to establish TCP connection: %s", e)
+            raise
+
+        with tn:
             # Login
-            tn.read_until(b"login: ")
-            tn.write(self.username.encode() + b"\n")
-            tn.read_until(b"password: ")
-            tn.write(self.password.encode() + b"\n")
+            logging.info("Waiting for login prompt...")
+            try:
+                login_prompt = tn.read_until(b"login:", timeout=DEFAULT_TIMEOUT)
+                logging.info("Received login prompt: %s", login_prompt.decode().strip())
+
+                logging.info("Sending username: %s", self.username)
+                tn.write(self.username.encode() + b"\n")
+
+                logging.info("Waiting for password prompt...")
+                password_prompt = tn.read_until(b"password:", timeout=DEFAULT_TIMEOUT)
+                logging.info("Received password prompt: %s", password_prompt.decode().strip())
+
+                logging.info("Sending password...")
+                tn.write(self.password.encode() + b"\n")
+            except Exception as e:
+                logging.error("Error during login process: %s", e)
+                self._connected = False
+                raise
             
             # Initialize connection
             if not self.initialize_connection(tn):
+                self._connected = False
                 raise ConnectionError("Failed to initialize connection")
             
             logging.info("Connected and initialized successfully")
@@ -256,6 +331,7 @@ class TelnetListener:
                 except Exception as e:
                     if self._running:
                         logging.error("Error in message loop: %s", e)
+                        self._connected = False
                         raise
 
     def run(self) -> None:
@@ -271,6 +347,7 @@ class TelnetListener:
     def stop(self) -> None:
         """Stop the listener."""
         self._running = False
+        self._connected = False
 
 
 def setup_logging(level: str) -> None:
@@ -296,10 +373,6 @@ def main() -> None:
         # Setup logging
         setup_logging(config.log_level)
         
-        # Start heartbeat service
-        heartbeat = HeartbeatService(config.heartbeat_url, config.heartbeat_interval)
-        heartbeat.start()
-
         # Initialize QRZ client
         qrz_client = QRZClient(config.qrz_username, config.qrz_password)
 
@@ -312,6 +385,14 @@ def main() -> None:
             config.password,
             notifier
         )
+
+        # Start heartbeat service with connection check
+        heartbeat = HeartbeatService(
+            config.heartbeat_url,
+            config.heartbeat_interval,
+            check_callback=listener.is_connected
+        )
+        heartbeat.start()
         
         # Run the listener (blocks until stopped)
         listener.run()
