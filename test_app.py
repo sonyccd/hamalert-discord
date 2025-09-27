@@ -188,9 +188,11 @@ class TestDiscordNotifier(unittest.TestCase):
     
     def setUp(self):
         self.webhook_url = "http://fake-webhook-url"
+        # Mock QRZ client for tests
+        self.mock_qrz = MagicMock(spec=QRZClient)
         # Patch the rate limiter to avoid delays in tests
         with patch('app.DiscordNotifier._rate_limiter', lambda f: f):
-            self.notifier = DiscordNotifier(self.webhook_url)
+            self.notifier = DiscordNotifier(self.webhook_url, self.mock_qrz)
 
     @patch("app.requests.post")
     def test_send_message_success(self, mock_post):
@@ -256,8 +258,9 @@ class TestTelnetListener(unittest.TestCase):
         self.username = "TESTUSER"
         self.password = "testpass"
         self.webhook_url = "http://fake-webhook-url"
+        self.mock_qrz = MagicMock(spec=QRZClient)
         with patch('app.DiscordNotifier._rate_limiter', lambda f: f):
-            self.notifier = DiscordNotifier(self.webhook_url)
+            self.notifier = DiscordNotifier(self.webhook_url, self.mock_qrz)
         # Replace send_message with a MagicMock to capture calls.
         self.notifier.send_message = MagicMock(return_value=True)
         self.notifier.send_spot = MagicMock(return_value=True)
@@ -306,6 +309,25 @@ class TestTelnetListener(unittest.TestCase):
         # Verify that the JSON mode command was sent.
         self.assertEqual(fake_telnet.last_written, b"set/json\n")
 
+    def test_connection_status_tracking(self):
+        """Test connection status tracking."""
+        listener = TelnetListener("fakehost", 1234, self.username, self.password, self.notifier)
+
+        # Initially not connected
+        self.assertFalse(listener.is_connected())
+
+        # After starting, still not connected until successful initialization
+        listener._running = True
+        self.assertFalse(listener.is_connected())
+
+        # After successful connection
+        listener._connected = True
+        self.assertTrue(listener.is_connected())
+
+        # After stopping
+        listener.stop()
+        self.assertFalse(listener.is_connected())
+
 
 class TestHeartbeatService(unittest.TestCase):
     """Test heartbeat service functionality."""
@@ -348,6 +370,50 @@ class TestHeartbeatService(unittest.TestCase):
             svc._run()
         
         mock_get.assert_called_once_with("http://hb", timeout=10)
+
+    @patch("app.requests.get")
+    def test_heartbeat_with_connection_check_healthy(self, mock_get):
+        """Test heartbeat with connection check when service is healthy."""
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_get.return_value = mock_response
+
+        # Mock connection check that returns True (healthy)
+        check_callback = MagicMock(return_value=True)
+
+        svc = HeartbeatService(url="http://hb", interval=1, check_callback=check_callback)
+        svc._running = True
+
+        # Run one iteration then stop
+        def stop_after_one(interval):
+            svc._running = False
+
+        with patch("app.time.sleep", side_effect=stop_after_one):
+            svc._run()
+
+        # Should have sent heartbeat because service is healthy
+        mock_get.assert_called_once_with("http://hb", timeout=10)
+        check_callback.assert_called_once()
+
+    @patch("app.requests.get")
+    def test_heartbeat_with_connection_check_unhealthy(self, mock_get):
+        """Test heartbeat with connection check when service is unhealthy."""
+        # Mock connection check that returns False (unhealthy)
+        check_callback = MagicMock(return_value=False)
+
+        svc = HeartbeatService(url="http://hb", interval=1, check_callback=check_callback)
+        svc._running = True
+
+        # Run one iteration then stop
+        def stop_after_one(interval):
+            svc._running = False
+
+        with patch("app.time.sleep", side_effect=stop_after_one):
+            svc._run()
+
+        # Should NOT have sent heartbeat because service is unhealthy
+        mock_get.assert_not_called()
+        check_callback.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -190,7 +190,6 @@ class TelnetListener:
         """
         try:
             # Give the server a moment to respond after password
-            import time
             time.sleep(0.5)
 
             # Try to read any immediate response
@@ -198,51 +197,36 @@ class TelnetListener:
                 immediate_response = tn.read_very_eager()
                 if immediate_response:
                     response_text = immediate_response.decode().strip()
-                    logging.info("Immediate response after password: %s", response_text)
                     if "login failed" in response_text.lower() or "check username" in response_text.lower():
                         logging.error("Authentication failed: %s", response_text)
                         return False
                     # Check if we already got the command prompt in the immediate response
                     if ">" in response_text and "hamalert" in response_text.lower():
-                        logging.info("Command prompt detected in immediate response, setting JSON mode")
                         tn.write(b"set/json\n")
                         # Read the response to set/json command
                         json_response = tn.read_until(b"\n", timeout=5).decode().strip()
-                        logging.info("JSON mode response: %s", json_response)
                         if "operation successful" in json_response.lower():
-                            logging.info("JSON mode enabled successfully")
                             self._connected = True
                             return True
-            except Exception as e:
-                logging.debug("Error reading immediate response: %s", e)
+            except Exception:
+                pass
 
             while True:
-                try:
-                    line = tn.read_until(b"\n", timeout=5).decode().strip()
-                    logging.info("Handshake: '%s'", line)
+                line = tn.read_until(b"\n", timeout=DEFAULT_TIMEOUT).decode().strip()
 
-                    if not line:
-                        logging.error("Empty line received - connection may be closed")
-                        return False
-                    elif "invalid" in line.lower() or "incorrect" in line.lower() or "denied" in line.lower() or "failed" in line.lower():
-                        logging.error("Authentication failed: %s", line)
-                        return False
-                    elif line.endswith("HamAlert"):
-                        logging.info("Received HamAlert banner")
-                        continue
-                    elif line.endswith(">") or ">" in line:
-                        logging.info("Received command prompt, setting JSON mode")
-                        tn.write(b"set/json\n")
-                        continue
-                    elif "operation successful" in line.lower() or "json mode" in line.lower():
-                        logging.info("JSON mode enabled successfully")
-                        self._connected = True
-                        return True
-                    else:
-                        logging.info("Other handshake message: %s", line)
-
-                except Exception as read_error:
-                    logging.error("Error reading handshake line: %s", read_error)
+                if line.endswith("HamAlert"):
+                    continue
+                elif line.endswith(">"):
+                    tn.write(b"set/json\n")
+                    continue
+                elif line == "Operation successful":
+                    self._connected = True
+                    return True
+                elif "Invalid" in line or "incorrect" in line.lower() or "denied" in line.lower():
+                    logging.error("Authentication failed: %s", line)
+                    return False
+                elif not line:
+                    logging.error("Connection closed during initialization")
                     return False
                     
         except Exception as e:
@@ -275,33 +259,12 @@ class TelnetListener:
         """Connect to HamAlert and process messages."""
         logging.info("Connecting to %s:%s", self.host, self.port)
 
-        try:
-            tn = telnetlib.Telnet(self.host, self.port, timeout=DEFAULT_TIMEOUT)
-            logging.info("TCP connection established successfully")
-        except Exception as e:
-            logging.error("Failed to establish TCP connection: %s", e)
-            raise
-
-        with tn:
+        with telnetlib.Telnet(self.host, self.port) as tn:
             # Login
-            logging.info("Waiting for login prompt...")
-            try:
-                login_prompt = tn.read_until(b"login:", timeout=DEFAULT_TIMEOUT)
-                logging.info("Received login prompt: %s", login_prompt.decode().strip())
-
-                logging.info("Sending username: %s", self.username)
-                tn.write(self.username.encode() + b"\n")
-
-                logging.info("Waiting for password prompt...")
-                password_prompt = tn.read_until(b"password:", timeout=DEFAULT_TIMEOUT)
-                logging.info("Received password prompt: %s", password_prompt.decode().strip())
-
-                logging.info("Sending password...")
-                tn.write(self.password.encode() + b"\n")
-            except Exception as e:
-                logging.error("Error during login process: %s", e)
-                self._connected = False
-                raise
+            tn.read_until(b"login:")
+            tn.write(self.username.encode() + b"\n")
+            tn.read_until(b"password:")
+            tn.write(self.password.encode() + b"\n")
             
             # Initialize connection
             if not self.initialize_connection(tn):

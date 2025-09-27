@@ -272,6 +272,111 @@ class TestQRZClient(unittest.TestCase):
         # Cache should be cleaned up
         self.assertEqual(len(self.client._cache), 1000)
 
+    @patch("qrz.requests.get")
+    def test_network_error_handling(self, mock_get):
+        """Test handling of network errors during API calls."""
+        mock_get.side_effect = Exception("Network error")
+
+        result = self.client._lookup_callsign_api("K1ABC")
+        self.assertIsNone(result)
+
+    @patch("qrz.requests.get")
+    def test_malformed_xml_response(self, mock_get):
+        """Test handling of malformed XML responses."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.text = "This is not valid XML"
+        mock_get.return_value = mock_response
+
+        result = self.client._lookup_callsign_api("K1ABC")
+        self.assertIsNone(result)
+
+    def test_callsign_normalization(self):
+        """Test that callsigns are properly normalized."""
+        # Test various callsign formats - QRZ client normalizes to uppercase
+        test_cases = [
+            ("k1abc", "K1ABC"),
+            ("K1ABC", "K1ABC"),
+            ("ve3xyz", "VE3XYZ"),
+            ("W1AW", "W1AW"),
+        ]
+
+        for input_call, expected_normalized in test_cases:
+            with patch.object(self.client, '_lookup_callsign_api') as mock_api, \
+                 patch.object(self.client, '_get_from_cache', return_value=None):
+                mock_api.return_value = CallsignInfo(callsign=expected_normalized)
+
+                result = self.client.lookup_callsign(input_call)
+
+                # Should have called API with normalized callsign
+                mock_api.assert_called_with(expected_normalized)
+                self.assertEqual(result.callsign, expected_normalized)
+
+    @patch("qrz.requests.get")
+    def test_http_error_handling(self, mock_get):
+        """Test handling of HTTP errors."""
+        mock_get.side_effect = Exception("HTTP 500 Error")
+
+        result = self.client._authenticate()
+        self.assertFalse(result)
+
+    def test_session_key_expiry_edge_cases(self):
+        """Test edge cases for session key expiry."""
+        import time
+
+        # Test exactly at expiry time
+        self.client.session_key = "test_key"
+        self.client.session_expires = time.time()
+        self.assertFalse(self.client._is_session_valid())
+
+        # Test just before expiry
+        self.client.session_expires = time.time() + 0.1
+        self.assertTrue(self.client._is_session_valid())
+
+    @patch("qrz.requests.get")
+    def test_empty_callsign_response(self, mock_get):
+        """Test handling when callsign data is empty."""
+        # Mock authentication
+        auth_response = Mock()
+        auth_response.status_code = 200
+        auth_response.text = """<?xml version="1.0" encoding="UTF-8" ?>
+        <QRZDatabase>
+        <Session>
+        <Key>test_session_key</Key>
+        </Session>
+        </QRZDatabase>"""
+
+        # Mock lookup response with empty callsign data
+        lookup_response = Mock()
+        lookup_response.status_code = 200
+        lookup_response.text = """<?xml version="1.0" encoding="UTF-8" ?>
+        <QRZDatabase>
+        <Callsign>
+        <call>K1ABC</call>
+        </Callsign>
+        </QRZDatabase>"""
+
+        mock_get.side_effect = [auth_response, lookup_response]
+
+        result = self.client._lookup_callsign_api("K1ABC")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.callsign, "K1ABC")
+        self.assertIsNone(result.first_name)
+        self.assertIsNone(result.last_name)
+
+    def test_multiple_concurrent_lookups(self):
+        """Test that cache works correctly with concurrent-style lookups."""
+        callsign = "K1ABC"
+
+        # Simulate two "concurrent" lookups
+        info1 = self.client.lookup_callsign(callsign)
+        info2 = self.client.lookup_callsign(callsign)
+
+        # Should return the same cached result
+        self.assertEqual(info1, info2)
+        self.assertEqual(info1.callsign, callsign)
+
 
 if __name__ == "__main__":
     unittest.main()
