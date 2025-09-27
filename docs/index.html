@@ -88,7 +88,7 @@
                             <i class="fas fa-user-circle"></i>
                         </div>
                         <h3>QRZ Integration</h3>
-                        <p>Automatic callsign lookup with QRZ.com integration, displaying operator names and creating clickable links to QRZ pages.</p>
+                        <p>Automatic callsign lookup with QRZ.com integration, combining operator first names with callsigns to create clickable links to QRZ pages.</p>
                     </div>
 
                     <div class="feature-card">
@@ -223,6 +223,12 @@ export HEARTBEAT_INTERVAL="300"</code></pre>
                                     <td>Heartbeat interval in seconds (default: 300)</td>
                                     <td>❌</td>
                                 </tr>
+                                <tr>
+                                    <td><code>LOG_LEVEL</code></td>
+                                    <td><code>--log-level</code></td>
+                                    <td>Logging level: DEBUG, INFO, WARNING, ERROR (default: INFO)</td>
+                                    <td>❌</td>
+                                </tr>
                             </tbody>
                         </table>
                     </div>
@@ -251,6 +257,7 @@ docker run -e USERNAME=your_username \
            -e WEBHOOK_URL=your_webhook_url \
            -e QRZ_USERNAME=your_qrz_username \
            -e QRZ_PASSWORD=your_qrz_password \
+           -e LOG_LEVEL=INFO \
            hamalert-discord</code></pre>
 
                         <h4>Docker Compose</h4>
@@ -265,6 +272,7 @@ services:
       - QRZ_USERNAME=${QRZ_USERNAME}
       - QRZ_PASSWORD=${QRZ_PASSWORD}
       - UPTIMEKUMA_URL=${UPTIMEKUMA_URL}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     restart: unless-stopped</code></pre>
                     </div>
                 </div>
@@ -279,7 +287,7 @@ services:
                     <div class="example-card">
                         <h3>SOTA Spot</h3>
                         <div class="message-preview">
-                            🏔️ SOTA spotted: <strong><a href="#">W1ABC</a></strong> (John) on 14.074 FT8 <span class="time">2 minutes ago</span><br>
+                            🏔️ SOTA spotted: <strong><a href="#">John W1ABC</a></strong> on 14.074 FT8 <span class="time">2 minutes ago</span><br>
                             Summit: Mount Washington W1/NH-001
                         </div>
                     </div>
@@ -287,16 +295,15 @@ services:
                     <div class="example-card">
                         <h3>POTA Spot</h3>
                         <div class="message-preview">
-                            🌳 POTA spotted: <strong><a href="#">K4XYZ</a></strong> (Sarah) on 7.032 CW <span class="time">5 minutes ago</span><br>
-                            Park: K-0123 Great Smoky Mountains National Park<br>
-                            <a href="#">https://pota.app/#/park/K-0123</a>
+                            🌳 POTA spotted: <strong><a href="#">Sarah K4XYZ</a></strong> on 7.032 CW <span class="time">5 minutes ago</span><br>
+                            Park: K-0123 <a href="#">Great Smoky Mountains National Park</a>
                         </div>
                     </div>
 
                     <div class="example-card">
                         <h3>Generic Spot</h3>
                         <div class="message-preview">
-                            spotted: <strong><a href="#">VK2DEF</a></strong> (Mike) on 21.074 FT8 <span class="time">1 minute ago</span>
+                            spotted: <strong><a href="#">Mike VK2DEF</a></strong> on 21.074 FT8 <span class="time">1 minute ago</span>
                         </div>
                     </div>
                 </div>

@@ -83,7 +83,7 @@ class Config:
         parser.add_argument(
             "--log-level",
             choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-            default="INFO",
+            default=os.getenv("LOG_LEVEL", "INFO"),
             help="Logging level"
         )
         parser.add_argument(

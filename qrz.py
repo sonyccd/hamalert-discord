@@ -67,11 +67,15 @@ class QRZClient:
             logging.debug("No QRZ credentials provided, using fallback mode")
             return False
 
+        logging.debug("Attempting QRZ authentication for user: %s", self.username)
+
         params = {
             'username': self.username,
             'password': self.password,
             'agent': 'hamalert-discord-1.0'
         }
+
+        logging.debug("Attempting QRZ authentication for user: %s", self.username)
 
         try:
             response = requests.get(
@@ -81,22 +85,55 @@ class QRZClient:
             )
             response.raise_for_status()
 
+
             root = ET.fromstring(response.text)
-            session_elem = root.find('.//Key')
 
-            if session_elem is not None:
-                self.session_key = session_elem.text
-                self.session_expires = time.time() + self.SESSION_TIMEOUT
-                logging.info("QRZ authentication successful")
-                return True
-            else:
+            # Define namespace map for QRZ XML
+            namespace = {'qrz': 'http://xmldata.qrz.com'}
+
+            # Look for Key element within Session (accounting for namespace)
+            session_section = root.find('.//qrz:Session', namespace)
+            if session_section is None:
+                # Fallback: try without namespace (some responses might not have it)
+                session_section = root.find('.//Session')
+
+            if session_section is not None:
+                key_elem = session_section.find('qrz:Key', namespace)
+                if key_elem is None:
+                    # Fallback: try without namespace
+                    key_elem = session_section.find('Key')
+
+                if key_elem is not None:
+                    self.session_key = key_elem.text
+                    self.session_expires = time.time() + self.SESSION_TIMEOUT
+                    logging.debug("QRZ authentication successful")
+                    return True
+
+                # Check for error in session element
+                session_error = session_section.find('qrz:Error', namespace)
+                if session_error is None:
+                    session_error = session_section.find('Error')
+                if session_error is not None:
+                    error_msg = session_error.text
+                    logging.error("QRZ authentication failed: %s", error_msg)
+                    return False
+
+            # Check for other error elements at root level
+            error_elem = root.find('.//qrz:Error', namespace)
+            if error_elem is None:
                 error_elem = root.find('.//Error')
-                error_msg = error_elem.text if error_elem is not None else "Unknown error"
-                logging.error("QRZ authentication failed: %s", error_msg)
-                return False
+            error_msg = error_elem.text if error_elem is not None else "Unknown error"
+            logging.error("QRZ authentication failed: %s", error_msg)
+            return False
 
+        except ET.ParseError as e:
+            logging.error("QRZ authentication error - Invalid XML response: %s", e)
+            return False
+        except requests.RequestException as e:
+            logging.error("QRZ authentication error - Network issue: %s", e)
+            return False
         except Exception as e:
-            logging.error("QRZ authentication error: %s", e)
+            logging.error("QRZ authentication error - Unexpected: %s", e)
             return False
 
     def _get_from_cache(self, callsign: str) -> Optional[CallsignInfo]:
@@ -150,10 +187,18 @@ class QRZClient:
 
             root = ET.fromstring(response.text)
 
+            # Define namespace map for QRZ XML
+            namespace = {'qrz': 'http://xmldata.qrz.com'}
+
             # Check for session expiry
-            session_elem = root.find('.//Session')
+            session_elem = root.find('.//qrz:Session', namespace)
+            if session_elem is None:
+                session_elem = root.find('.//Session')
+
             if session_elem is not None:
-                error_elem = session_elem.find('Error')
+                error_elem = session_elem.find('qrz:Error', namespace)
+                if error_elem is None:
+                    error_elem = session_elem.find('Error')
                 if error_elem is not None and 'Session Timeout' in error_elem.text:
                     logging.debug("QRZ session expired, re-authenticating")
                     self.session_key = None
@@ -162,16 +207,23 @@ class QRZClient:
                     return None
 
             # Parse callsign data
-            callsign_elem = root.find('.//Callsign')
+            callsign_elem = root.find('.//qrz:Callsign', namespace)
+            if callsign_elem is None:
+                callsign_elem = root.find('.//Callsign')
+
             if callsign_elem is not None:
                 first_name = None
                 last_name = None
 
-                fname_elem = callsign_elem.find('fname')
+                fname_elem = callsign_elem.find('qrz:fname', namespace)
+                if fname_elem is None:
+                    fname_elem = callsign_elem.find('fname')
                 if fname_elem is not None:
                     first_name = fname_elem.text
 
-                name_elem = callsign_elem.find('name')
+                name_elem = callsign_elem.find('qrz:name', namespace)
+                if name_elem is None:
+                    name_elem = callsign_elem.find('name')
                 if name_elem is not None:
                     last_name = name_elem.text
 

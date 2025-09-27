@@ -58,10 +58,14 @@ class TestQRZClient(unittest.TestCase):
         """Test successful authentication."""
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_response.text = """<?xml version="1.0" encoding="UTF-8" ?>
-        <QRZDatabase>
+        mock_response.text = """<?xml version="1.0" encoding="utf-8" ?>
+        <QRZDatabase version="1.36" xmlns="http://xmldata.qrz.com">
         <Session>
         <Key>test_session_key</Key>
+        <Count>1</Count>
+        <SubExp>Fri Sep 29 14:13:57 2034</SubExp>
+        <GMTime>Sat Sep 27 19:09:23 2025</GMTime>
+        <Remark>cpu: 0.094s</Remark>
         </Session>
         </QRZDatabase>"""
         mock_get.return_value = mock_response
@@ -77,8 +81,8 @@ class TestQRZClient(unittest.TestCase):
         """Test authentication failure."""
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_response.text = """<?xml version="1.0" encoding="UTF-8" ?>
-        <QRZDatabase>
+        mock_response.text = """<?xml version="1.0" encoding="utf-8" ?>
+        <QRZDatabase version="1.36" xmlns="http://xmldata.qrz.com">
         <Session>
         <Error>Invalid username/password</Error>
         </Session>
@@ -123,18 +127,22 @@ class TestQRZClient(unittest.TestCase):
         # Mock authentication
         auth_response = Mock()
         auth_response.status_code = 200
-        auth_response.text = """<?xml version="1.0" encoding="UTF-8" ?>
-        <QRZDatabase>
+        auth_response.text = """<?xml version="1.0" encoding="utf-8" ?>
+        <QRZDatabase version="1.36" xmlns="http://xmldata.qrz.com">
         <Session>
         <Key>test_session_key</Key>
+        <Count>1</Count>
+        <SubExp>Fri Sep 29 14:13:57 2034</SubExp>
+        <GMTime>Sat Sep 27 19:09:23 2025</GMTime>
+        <Remark>cpu: 0.094s</Remark>
         </Session>
         </QRZDatabase>"""
 
         # Mock lookup response
         lookup_response = Mock()
         lookup_response.status_code = 200
-        lookup_response.text = """<?xml version="1.0" encoding="UTF-8" ?>
-        <QRZDatabase>
+        lookup_response.text = """<?xml version="1.0" encoding="utf-8" ?>
+        <QRZDatabase version="1.36" xmlns="http://xmldata.qrz.com">
         <Callsign>
         <call>K1ABC</call>
         <fname>John</fname>
@@ -158,7 +166,7 @@ class TestQRZClient(unittest.TestCase):
         auth_response = Mock()
         auth_response.status_code = 200
         auth_response.text = """<?xml version="1.0" encoding="UTF-8" ?>
-        <QRZDatabase>
+        <QRZDatabase version="1.36" xmlns="http://xmldata.qrz.com">
         <Session>
         <Key>test_session_key</Key>
         </Session>
@@ -168,7 +176,7 @@ class TestQRZClient(unittest.TestCase):
         lookup_response = Mock()
         lookup_response.status_code = 200
         lookup_response.text = """<?xml version="1.0" encoding="UTF-8" ?>
-        <QRZDatabase>
+        <QRZDatabase version="1.36" xmlns="http://xmldata.qrz.com">
         <Session>
         <Error>Not found: K1NOTFOUND</Error>
         </Session>
@@ -190,7 +198,7 @@ class TestQRZClient(unittest.TestCase):
         timeout_response = Mock()
         timeout_response.status_code = 200
         timeout_response.text = """<?xml version="1.0" encoding="UTF-8" ?>
-        <QRZDatabase>
+        <QRZDatabase version="1.36" xmlns="http://xmldata.qrz.com">
         <Session>
         <Error>Session Timeout</Error>
         </Session>
@@ -200,7 +208,7 @@ class TestQRZClient(unittest.TestCase):
         auth_response = Mock()
         auth_response.status_code = 200
         auth_response.text = """<?xml version="1.0" encoding="UTF-8" ?>
-        <QRZDatabase>
+        <QRZDatabase version="1.36" xmlns="http://xmldata.qrz.com">
         <Session>
         <Key>new_session_key</Key>
         </Session>
@@ -210,7 +218,7 @@ class TestQRZClient(unittest.TestCase):
         lookup_response = Mock()
         lookup_response.status_code = 200
         lookup_response.text = """<?xml version="1.0" encoding="UTF-8" ?>
-        <QRZDatabase>
+        <QRZDatabase version="1.36" xmlns="http://xmldata.qrz.com">
         <Callsign>
         <call>K1ABC</call>
         <fname>John</fname>
@@ -340,7 +348,7 @@ class TestQRZClient(unittest.TestCase):
         auth_response = Mock()
         auth_response.status_code = 200
         auth_response.text = """<?xml version="1.0" encoding="UTF-8" ?>
-        <QRZDatabase>
+        <QRZDatabase version="1.36" xmlns="http://xmldata.qrz.com">
         <Session>
         <Key>test_session_key</Key>
         </Session>
@@ -350,7 +358,7 @@ class TestQRZClient(unittest.TestCase):
         lookup_response = Mock()
         lookup_response.status_code = 200
         lookup_response.text = """<?xml version="1.0" encoding="UTF-8" ?>
-        <QRZDatabase>
+        <QRZDatabase version="1.36" xmlns="http://xmldata.qrz.com">
         <Callsign>
         <call>K1ABC</call>
         </Callsign>

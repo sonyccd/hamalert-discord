@@ -25,6 +25,7 @@ COPY app.py config.py formatters.py utils.py qrz.py ./
 # ENV QRZ_PASSWORD=your_qrz_password
 # ENV UPTIMEKUMA_URL=https://your.uptime.kuma.url
 # ENV HEARTBEAT_INTERVAL=300
+# ENV LOG_LEVEL=INFO
 
 # Run the application.
 CMD ["python", "app.py"]

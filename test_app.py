@@ -104,9 +104,8 @@ class TestSpotFormatter(unittest.TestCase):
         message = self.formatter.format_spot(payload)
         self.assertNotIn("🏔️", message)
         self.assertNotIn("🌳", message)
-        self.assertIn("spotted: **[K1ABC]", message)
+        self.assertIn("spotted: **[John K1ABC]", message)
         self.assertIn("qrz.com/db/K1ABC", message)
-        self.assertIn("(John)", message)
         self.assertIn("on 14.250 SSB", message)
     
     def test_format_sota_spot(self):
@@ -129,9 +128,8 @@ class TestSpotFormatter(unittest.TestCase):
         }
         message = self.formatter.format_spot(payload)
         self.assertIn("🏔️ SOTA", message)
-        self.assertIn("spotted: **[K1ABC]", message)
+        self.assertIn("spotted: **[John K1ABC]", message)
         self.assertIn("qrz.com/db/K1ABC", message)
-        self.assertIn("(John)", message)
         self.assertIn("Summit: Mount Test", message)
     
     def test_format_pota_spot(self):
@@ -155,11 +153,10 @@ class TestSpotFormatter(unittest.TestCase):
         }
         message = self.formatter.format_spot(payload)
         self.assertIn("🌳 POTA", message)
-        self.assertIn("spotted: **[K1XYZ]", message)
+        self.assertIn("spotted: **[Jane K1XYZ]", message)
         self.assertIn("qrz.com/db/K1XYZ", message)
-        self.assertIn("(Jane)", message)
-        self.assertIn("Park: NP-123 National Park", message)
-        self.assertIn("https://pota.app/#/park/NP-123", message)
+        self.assertIn("Park: NP-123 [National Park]", message)
+        self.assertIn("pota.app/#/park/NP-123", message)
     
     def test_validate_spot_payload(self):
         """Test payload validation."""

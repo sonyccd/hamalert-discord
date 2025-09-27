@@ -123,9 +123,8 @@ class TestMessageFlowIntegration(unittest.TestCase):
         # Check message content
         sent_content = call_args[1]["json"]["content"]
         self.assertIn("🏔️ SOTA spotted:", sent_content)
-        self.assertIn("[W1ABC/P]", sent_content)
+        self.assertIn("[John W1ABC/P]", sent_content)
         self.assertIn("qrz.com/db/W1ABC", sent_content)
-        self.assertIn("(John)", sent_content)
         self.assertIn("Mount Washington", sent_content)
 
     @patch('app.requests.post')
@@ -166,9 +165,8 @@ class TestMessageFlowIntegration(unittest.TestCase):
 
         sent_content = call_args[1]["json"]["content"]
         self.assertIn("🌳 POTA spotted:", sent_content)
-        self.assertIn("[K4XYZ]", sent_content)
+        self.assertIn("[Sarah K4XYZ]", sent_content)
         self.assertIn("qrz.com/db/K4XYZ", sent_content)
-        self.assertIn("(Sarah)", sent_content)
         self.assertIn("K-0123", sent_content)
         self.assertIn("pota.app/#/park/K-0123", sent_content)
 
@@ -210,8 +208,8 @@ class TestMessageFlowIntegration(unittest.TestCase):
         self.assertIn("spotted: **[VK2DEF]", sent_content)
         self.assertIn("qrz.com/db/VK2DEF", sent_content)
         # Should not have first name since no QRZ credentials
-        # Check that there's no " (FirstName)" pattern after the callsign
-        self.assertNotIn("** (", sent_content)
+        # Should not contain first name before callsign
+        self.assertNotRegex(sent_content, r'\*\*\[.+ VK2DEF\]')
 
     def test_invalid_json_handling(self):
         """Test handling of invalid JSON data."""

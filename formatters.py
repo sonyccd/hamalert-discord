@@ -56,12 +56,13 @@ class SpotFormatter:
         # Look up callsign info
         info = self.qrz_client.lookup_callsign(base_callsign)
 
-        # Create formatted callsign with link
-        formatted = f"**[{callsign}]({info.qrz_url})**"
-
-        # Add first name if available
+        # Create formatted output with first name and callsign as one link
         if info.first_name:
-            formatted += f" ({info.first_name})"
+            # Extract only the first word (first name) to avoid middle initials
+            first_name_only = info.first_name.split()[0]
+            formatted = f"**[{first_name_only} {callsign}](<{info.qrz_url}>)**"
+        else:
+            formatted = f"**[{callsign}](<{info.qrz_url}>)**"
 
         return formatted
 
@@ -99,8 +100,10 @@ class SpotFormatter:
 
         if ref := payload.get('wwffRef'):
             name = payload.get('wwffName', '')
-            msg += f"\nPark: {ref} {name}"
-            msg += f"\n<https://pota.app/#/park/{ref}>"
+            if name:
+                msg += f"\nPark: {ref} [{name}](<https://pota.app/#/park/{ref}>)"
+            else:
+                msg += f"\nPark: [{ref}](<https://pota.app/#/park/{ref}>)"
 
         return msg
 

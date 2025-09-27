@@ -38,9 +38,8 @@ class TestSpotFormatterQRZ(unittest.TestCase):
                 self.mock_qrz.lookup_callsign.assert_called_with(expected_base)
 
                 # Verify formatted result contains full callsign but QRZ link uses base
-                self.assertIn(f"[{full_callsign}]", result)
+                self.assertIn(f"[Test {full_callsign}]", result)
                 self.assertIn(f"qrz.com/db/{expected_base}", result)
-                self.assertIn("(Test)", result)
 
     def test_qrz_link_generation(self):
         """Test QRZ link generation."""
@@ -50,8 +49,7 @@ class TestSpotFormatterQRZ(unittest.TestCase):
         result = self.formatter._format_callsign("K1ABC")
 
         # Check all components are present
-        self.assertIn("**[K1ABC](https://www.qrz.com/db/K1ABC)**", result)
-        self.assertIn("(John)", result)
+        self.assertIn("**[John K1ABC](<https://www.qrz.com/db/K1ABC>)**", result)
 
     def test_qrz_no_first_name(self):
         """Test formatting when QRZ has no first name."""
@@ -60,11 +58,11 @@ class TestSpotFormatterQRZ(unittest.TestCase):
 
         result = self.formatter._format_callsign("K1ABC")
 
-        # Should not include parentheses for first name, but will have QRZ link parentheses
-        self.assertIn("**[K1ABC](https://www.qrz.com/db/K1ABC)**", result)
-        # Should not include name in parentheses
-        self.assertNotIn("(John)", result)
-        self.assertNotIn("(Doe)", result)
+        # Should only have callsign without first name
+        self.assertIn("**[K1ABC](<https://www.qrz.com/db/K1ABC>)**", result)
+        # Should not include name
+        self.assertNotIn("John", result)
+        self.assertNotIn("Doe", result)
 
     def test_spot_formatting_with_qrz(self):
         """Test complete spot formatting with QRZ integration."""
@@ -88,9 +86,8 @@ class TestSpotFormatterQRZ(unittest.TestCase):
 
         # Verify SOTA formatting with QRZ integration
         self.assertIn("🏔️ SOTA spotted:", result)
-        self.assertIn("[W1ABC/P]", result)
+        self.assertIn("[Alice W1ABC/P]", result)
         self.assertIn("qrz.com/db/W1ABC", result)
-        self.assertIn("(Alice)", result)
         self.assertIn("Mount Test", result)
 
     def test_qrz_client_none(self):
