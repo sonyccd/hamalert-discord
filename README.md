@@ -1,4 +1,5 @@
 # hamalert-discord
+![status](https://uptime.thebazemores.net/api/badge/4/status)
 
 A Python service that monitors HamAlert telnet feeds and forwards amateur radio spot notifications to Discord webhooks. Supports SOTA (Summits on the Air) and POTA (Parks on the Air) alerts with special formatting.
 
