@@ -12,7 +12,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the application code.
-COPY app.py config.py formatters.py utils.py ./
+COPY app.py config.py formatters.py utils.py qrz.py ./
 
 # The application uses environment variables.
 # You can pass these at runtime using docker run -e, or define defaults here.
@@ -21,6 +21,8 @@ COPY app.py config.py formatters.py utils.py ./
 # ENV PASSWORD=your_password
 # ENV WEBHOOK_URL=https://your.discord.webhook.url
 # Optional environment variables:
+# ENV QRZ_USERNAME=your_qrz_username
+# ENV QRZ_PASSWORD=your_qrz_password
 # ENV UPTIMEKUMA_URL=https://your.uptime.kuma.url
 # ENV HEARTBEAT_INTERVAL=300
 
