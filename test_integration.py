@@ -210,7 +210,8 @@ class TestMessageFlowIntegration(unittest.TestCase):
         self.assertIn("spotted: **[VK2DEF]", sent_content)
         self.assertIn("qrz.com/db/VK2DEF", sent_content)
         # Should not have first name since no QRZ credentials
-        self.assertNotIn("(", sent_content)
+        # Check that there's no " (FirstName)" pattern after the callsign
+        self.assertNotIn("** (", sent_content)
 
     def test_invalid_json_handling(self):
         """Test handling of invalid JSON data."""
