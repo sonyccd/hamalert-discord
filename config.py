@@ -8,7 +8,7 @@ from typing import Optional
 @dataclass
 class Config:
     """Application configuration."""
-    
+
     username: str
     password: str
     webhook_url: str
@@ -17,6 +17,8 @@ class Config:
     heartbeat_url: Optional[str] = None
     heartbeat_interval: int = 300
     log_level: str = "INFO"
+    qrz_username: Optional[str] = None
+    qrz_password: Optional[str] = None
     
     def __post_init__(self):
         """Validate and normalize configuration."""
@@ -84,6 +86,16 @@ class Config:
             default="INFO",
             help="Logging level"
         )
+        parser.add_argument(
+            "--qrz-username",
+            default=os.getenv("QRZ_USERNAME", ""),
+            help="QRZ.com username for callsign lookups"
+        )
+        parser.add_argument(
+            "--qrz-password",
+            default=os.getenv("QRZ_PASSWORD", ""),
+            help="QRZ.com password for callsign lookups"
+        )
         
         args = parser.parse_args()
         
@@ -95,5 +107,7 @@ class Config:
             port=args.port,
             heartbeat_url=args.heartbeat_url or None,
             heartbeat_interval=args.heartbeat_interval,
-            log_level=args.log_level
+            log_level=args.log_level,
+            qrz_username=args.qrz_username or None,
+            qrz_password=args.qrz_password or None
         )

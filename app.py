@@ -10,6 +10,7 @@ import requests
 
 from config import Config
 from formatters import SpotFormatter, validate_spot_payload
+from qrz import QRZClient
 from utils import exponential_backoff, RateLimiter
 
 
@@ -75,15 +76,16 @@ class DiscordNotifier:
     # Rate limit: 30 messages per minute per webhook
     _rate_limiter = RateLimiter(calls=30, period=60)
     
-    def __init__(self, webhook_url: str):
+    def __init__(self, webhook_url: str, qrz_client: Optional[QRZClient] = None):
         """
         Initialize Discord notifier.
-        
+
         Args:
             webhook_url: Discord webhook URL
+            qrz_client: QRZ client for callsign lookups
         """
         self.webhook_url = webhook_url
-        self.formatter = SpotFormatter()
+        self.formatter = SpotFormatter(qrz_client)
 
     @_rate_limiter
     def send_message(self, content: str) -> bool:
@@ -297,14 +299,17 @@ def main() -> None:
         # Start heartbeat service
         heartbeat = HeartbeatService(config.heartbeat_url, config.heartbeat_interval)
         heartbeat.start()
-        
+
+        # Initialize QRZ client
+        qrz_client = QRZClient(config.qrz_username, config.qrz_password)
+
         # Start listener
-        notifier = DiscordNotifier(config.webhook_url)
+        notifier = DiscordNotifier(config.webhook_url, qrz_client)
         listener = TelnetListener(
-            config.host, 
-            config.port, 
-            config.username, 
-            config.password, 
+            config.host,
+            config.port,
+            config.username,
+            config.password,
             notifier
         )
         

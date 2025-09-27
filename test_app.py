@@ -14,6 +14,7 @@ from app import (
 )
 from formatters import SpotFormatter, validate_spot_payload
 from config import Config
+from qrz import QRZClient
 
 
 # Helper class to simulate Telnet interactions.
@@ -79,10 +80,18 @@ class TestSpotFormatter(unittest.TestCase):
     """Test message formatting."""
     
     def setUp(self):
-        self.formatter = SpotFormatter()
+        # Mock QRZ client to avoid network calls in tests
+        mock_qrz = MagicMock(spec=QRZClient)
+        self.formatter = SpotFormatter(mock_qrz)
     
     def test_format_generic_spot(self):
         """Test formatting of generic spots."""
+        from qrz import CallsignInfo
+
+        # Mock the QRZ lookup to return test data
+        mock_info = CallsignInfo(callsign="K1ABC", first_name="John")
+        self.formatter.qrz_client.lookup_callsign.return_value = mock_info
+
         payload = {
             "fullCallsign": "K1ABC",
             "callsign": "K1ABC",
@@ -95,11 +104,19 @@ class TestSpotFormatter(unittest.TestCase):
         message = self.formatter.format_spot(payload)
         self.assertNotIn("🏔️", message)
         self.assertNotIn("🌳", message)
-        self.assertIn("spotted: **K1ABC**", message)
+        self.assertIn("spotted: **[K1ABC]", message)
+        self.assertIn("qrz.com/db/K1ABC", message)
+        self.assertIn("(John)", message)
         self.assertIn("on 14.250 SSB", message)
     
     def test_format_sota_spot(self):
         """Test formatting of SOTA spots."""
+        from qrz import CallsignInfo
+
+        # Mock the QRZ lookup to return test data
+        mock_info = CallsignInfo(callsign="K1ABC", first_name="John")
+        self.formatter.qrz_client.lookup_callsign.return_value = mock_info
+
         payload = {
             "fullCallsign": "K1ABC",
             "callsign": "K1ABC",
@@ -112,11 +129,19 @@ class TestSpotFormatter(unittest.TestCase):
         }
         message = self.formatter.format_spot(payload)
         self.assertIn("🏔️ SOTA", message)
-        self.assertIn("spotted: **K1ABC**", message)
+        self.assertIn("spotted: **[K1ABC]", message)
+        self.assertIn("qrz.com/db/K1ABC", message)
+        self.assertIn("(John)", message)
         self.assertIn("Summit: Mount Test", message)
     
     def test_format_pota_spot(self):
         """Test formatting of POTA spots."""
+        from qrz import CallsignInfo
+
+        # Mock the QRZ lookup to return test data
+        mock_info = CallsignInfo(callsign="K1XYZ", first_name="Jane")
+        self.formatter.qrz_client.lookup_callsign.return_value = mock_info
+
         payload = {
             "fullCallsign": "K1XYZ",
             "callsign": "K1XYZ",
@@ -130,7 +155,9 @@ class TestSpotFormatter(unittest.TestCase):
         }
         message = self.formatter.format_spot(payload)
         self.assertIn("🌳 POTA", message)
-        self.assertIn("spotted: **K1XYZ**", message)
+        self.assertIn("spotted: **[K1XYZ]", message)
+        self.assertIn("qrz.com/db/K1XYZ", message)
+        self.assertIn("(Jane)", message)
         self.assertIn("Park: NP-123 National Park", message)
         self.assertIn("https://pota.app/#/park/NP-123", message)
     

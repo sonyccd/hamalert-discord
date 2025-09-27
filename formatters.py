@@ -1,71 +1,107 @@
 """Message formatting for different spot types."""
+import re
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+
+from qrz import QRZClient
 
 
 class SpotFormatter:
     """Formats spot messages for Discord."""
-    
+
     SOTA_EMOJI = "🏔️"
     POTA_EMOJI = "🌳"
+
+    def __init__(self, qrz_client: Optional[QRZClient] = None):
+        """
+        Initialize formatter.
+
+        Args:
+            qrz_client: QRZ client for callsign lookups
+        """
+        self.qrz_client = qrz_client or QRZClient()
     
-    @staticmethod
-    def format_spot(payload: Dict[str, Any]) -> str:
+    def format_spot(self, payload: Dict[str, Any]) -> str:
         """
         Format a spot payload into a Discord message.
-        
+
         Args:
             payload: Spot data from HamAlert
-            
+
         Returns:
             Formatted Discord message
         """
         source = payload.get('source', '')
-        
+
         if source == 'sotawatch':
-            return SpotFormatter._format_sota(payload)
+            return self._format_sota(payload)
         elif source == 'pota':
-            return SpotFormatter._format_pota(payload)
+            return self._format_pota(payload)
         else:
-            return SpotFormatter._format_generic(payload)
+            return self._format_generic(payload)
     
-    @staticmethod
-    def _format_generic(payload: Dict[str, Any]) -> str:
+    def _format_callsign(self, callsign: str) -> str:
+        """
+        Format callsign with QRZ link and name if available.
+
+        Args:
+            callsign: Amateur radio callsign
+
+        Returns:
+            Formatted callsign string
+        """
+        # Extract base callsign (remove /P, /M, etc.)
+        base_callsign = re.split(r'[/]', callsign)[0]
+
+        # Look up callsign info
+        info = self.qrz_client.lookup_callsign(base_callsign)
+
+        # Create formatted callsign with link
+        formatted = f"**[{callsign}]({info.qrz_url})**"
+
+        # Add first name if available
+        if info.first_name:
+            formatted += f" ({info.first_name})"
+
+        return formatted
+
+    def _format_generic(self, payload: Dict[str, Any]) -> str:
         """Format a generic spot message."""
+        callsign = self._format_callsign(payload['fullCallsign'])
         return (
-            f" spotted: **{payload['fullCallsign']}** "
+            f" spotted: {callsign} "
             f"on {payload['frequency']} {payload['mode']} "
             f"<t:{int(time.time())}:R>"
         )
     
-    @staticmethod
-    def _format_sota(payload: Dict[str, Any]) -> str:
+    def _format_sota(self, payload: Dict[str, Any]) -> str:
         """Format a SOTA spot message."""
+        callsign = self._format_callsign(payload['fullCallsign'])
         msg = (
-            f"{SpotFormatter.SOTA_EMOJI} SOTA spotted: **{payload['fullCallsign']}** "
+            f"{SpotFormatter.SOTA_EMOJI} SOTA spotted: {callsign} "
             f"on {payload['frequency']} {payload['mode']} "
             f"<t:{int(time.time())}:R>"
         )
-        
+
         if summit := payload.get('summitName'):
             msg += f"\nSummit: {summit}"
-        
+
         return msg
     
-    @staticmethod
-    def _format_pota(payload: Dict[str, Any]) -> str:
+    def _format_pota(self, payload: Dict[str, Any]) -> str:
         """Format a POTA spot message."""
+        callsign = self._format_callsign(payload['fullCallsign'])
         msg = (
-            f"{SpotFormatter.POTA_EMOJI} POTA spotted: **{payload['fullCallsign']}** "
+            f"{SpotFormatter.POTA_EMOJI} POTA spotted: {callsign} "
             f"on {payload['frequency']} {payload['mode']} "
             f"<t:{int(time.time())}:R>"
         )
-        
+
         if ref := payload.get('wwffRef'):
             name = payload.get('wwffName', '')
             msg += f"\nPark: {ref} {name}"
             msg += f"\n<https://pota.app/#/park/{ref}>"
-        
+
         return msg
 
 
